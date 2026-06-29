@@ -441,4 +441,168 @@ Spec 只有被 AI 遵守才有用。**模糊的指南会被忽略，具体的规
 
 ---
 
+## 十五、完整示例：用 Trellis 落地一个需求
+
+下面用一个通用的 Web 应用需求，演示**从需求到归档的端到端全过程**，包含每一步的实际命令、AI 行为与产出文件内容。
+
+> **需求**：给一个博客网站的文章列表页增加「按标签筛选」功能——用户点击标签，列表只显示带该标签的文章，URL 同步为 `?tag=xxx`，可分享/刷新保持。
+>
+> 假设这是一个 Next.js + TypeScript 项目，是一个改动几个文件的中等任务。
+
+### 步骤 0：准备（仅首次）
+
+```bash
+# 全局装 CLI
+npm install -g @mindfoldhq/trellis@latest
+# 在项目根目录初始化
+trellis init -u alice
+```
+
+### 步骤 1：开新会话，直接描述需求
+
+你在编码工具里对 AI 说：
+
+> 「文章列表页加一个按标签筛选的功能，点标签只显示该标签的文章，URL 要带上 ?tag=，刷新后还在。」
+
+会话开启时 Trellis 已注入启动上下文（开发者身份、Git 状态、活动任务、spec 索引、工作区日志）。AI 识别这是一个值得结构化的任务，于是**先征求同意**：
+
+> AI：这个功能会改动列表页、路由参数和筛选逻辑，建议建一个 Trellis 任务并进入规划。是否允许我创建任务？（注意：建任务≠开始写代码）
+
+你回复「可以」。
+
+### 步骤 2：创建任务
+
+AI 执行（对应 `task.py create`）：
+
+```bash
+python3 ./.trellis/scripts/task.py create "文章列表按标签筛选" --slug filter-by-tag -p medium
+```
+
+生成目录 `.trellis/tasks/06-29-filter-by-tag/`，初始 `task.json` 状态为 `planning`：
+
+```json
+{
+  "title": "文章列表按标签筛选",
+  "slug": "filter-by-tag",
+  "status": "planning",
+  "assignee": "alice",
+  "priority": "medium",
+  "created_at": "2026-06-29"
+}
+```
+
+### 步骤 3：规划 —— brainstorm 写出 `prd.md`
+
+`trellis-brainstorm` 逐条澄清需求后写出 `prd.md`：
+
+```markdown
+# PRD：文章列表按标签筛选
+
+## 背景
+文章越来越多，用户希望按标签快速过滤，并能分享筛选后的链接。
+
+## 需求
+- 列表页每篇文章下展示其标签，标签可点击
+- 点击标签后只显示含该标签的文章，URL 同步为 ?tag=<slug>
+- 直接打开带 ?tag= 的链接 / 刷新页面，筛选状态保持
+- 提供「清除筛选」入口回到全部文章
+
+## 验收标准
+- 点击标签 → 列表正确过滤，URL 更新
+- 带 ?tag= 直接访问 → 初始即过滤
+- 无匹配文章时显示空状态提示
+- 相关单测通过；lint 与 build 通过
+
+## 范围外
+- 不做多标签组合筛选；不做后端分页改造
+```
+
+> **复核节点（PRD 确认）**：AI 停下，请你确认 PRD。你确认后继续。
+
+### 步骤 4：填上下文清单（窄而准）
+
+AI 用 `add-context` 把要读的 **spec 文件**（不是待改源码）写进 jsonl：
+
+```bash
+DIR=.trellis/tasks/06-29-filter-by-tag
+python3 ./.trellis/scripts/task.py add-context "$DIR" \
+  ".trellis/spec/frontend/components.md" "组件与列表渲染约定"
+python3 ./.trellis/scripts/task.py add-context "$DIR" \
+  ".trellis/spec/frontend/state.md" "URL 参数与状态同步约定"
+python3 ./.trellis/scripts/task.py validate "$DIR"
+```
+
+`implement.jsonl` 内容：
+
+```jsonl
+{"file": ".trellis/spec/frontend/components.md", "reason": "组件与列表渲染约定"}
+{"file": ".trellis/spec/frontend/state.md", "reason": "URL 参数与状态同步约定"}
+```
+
+> 本例是中等任务，PRD + jsonl 足够；若更复杂可再补 `design.md` / `implement.md`。
+
+### 步骤 5：激活任务进入实现
+
+```bash
+python3 ./.trellis/scripts/task.py start .trellis/tasks/06-29-filter-by-tag
+# task.json.status: planning -> in_progress
+```
+
+下一轮注入 `[workflow-state:in_progress]`，`trellis-implement` 子代理按 `jsonl → prd.md` 顺序加载上下文，开始写代码（**不 commit**）：
+
+- `components/TagBadge.tsx`：可点击标签组件，跳转到 `?tag=<slug>`
+- `app/posts/page.tsx`：读取 `searchParams.tag`，过滤文章列表，增加空状态与「清除筛选」
+- `__tests__/filter-by-tag.test.tsx`：筛选逻辑与空状态单测
+
+### 步骤 6：检查与自修复
+
+`trellis-check` 子代理读 PRD / `check.jsonl` / 改动文件，并跑校验，发现问题自行修复后重跑：
+
+```bash
+npm test -- filter-by-tag && npm run lint && npm run build
+```
+
+### 步骤 7：收尾沉淀 spec
+
+`trellis-update-spec` 问：本次有没有可复用规则？有——「列表类页面的筛选状态一律走 URL searchParams，不放组件内部 state」。写进 `.trellis/spec/frontend/state.md`：
+
+```markdown
+### 列表筛选状态约定（新增）
+列表/搜索类页面的筛选条件统一保存在 URL searchParams（如 ?tag=、?q=），
+组件从 URL 读取而非内部 useState，保证可分享、可刷新、可前进后退。
+```
+
+### 步骤 8：主会话驱动提交（需你确认一次）
+
+AI 打印提交计划，等你确认后执行：
+
+```bash
+git add app/posts/page.tsx components/TagBadge.tsx __tests__/ .trellis/
+git commit -m "feat(posts): 文章列表支持按标签筛选并同步 URL"
+```
+
+### 步骤 9：归档与写日志
+
+```bash
+/trellis-finish-work
+```
+
+它把任务归档到 `.trellis/tasks/archive/2026-06/06-29-filter-by-tag/`，并把会话总结追加到 `.trellis/workspace/alice/journal-N.md`：
+
+```markdown
+## 2026-06-29 文章列表按标签筛选
+- 列表支持点击标签筛选，状态同步到 URL ?tag=
+- commit: feat(posts): 文章列表支持按标签筛选并同步 URL
+- 沉淀：列表筛选状态一律走 URL searchParams
+```
+
+### 这个示例展示了什么
+
+- **同意闸门**：建任务前、实现前、提交前各有一次人工确认；
+- **结构化产物**：`prd.md`（必有）→ jsonl 上下文清单（复杂任务再加 `design.md` / `implement.md`）；
+- **子代理分工**：research（只读）/ implement（不 commit）/ check（自修复）；
+- **知识沉淀**：可复用规则上升到 `spec/`，会话痕迹留在 `workspace/`，下一次会话无需聊天记录即可接续。
+
+---
+
 > 本指南依据 https://docs.trytrellis.app/ 官方文档整理。具体命令与字段以你本地安装的 Trellis 版本及 `.trellis/workflow.md`、`config.yaml` 为准。
