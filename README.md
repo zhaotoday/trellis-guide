@@ -24,7 +24,7 @@
 11. [多平台与团队协作](#十一多平台与团队协作)
 12. [典型使用场景](#十二典型使用场景)
 13. [最佳实践与常见误区](#十三最佳实践与常见误区)
-14. [结合本工作空间（MoreLogin）的落地建议](#十四结合本工作空间morelogin的落地建议)
+14. [完整示例：用 Trellis 落地一个需求](#十四完整示例用-trellis-落地一个需求)
 
 ---
 
@@ -430,18 +430,7 @@ Spec 只有被 AI 遵守才有用。**模糊的指南会被忽略，具体的规
 
 ---
 
-## 十四、结合本工作空间（MoreLogin）的落地建议
-
-本工作空间（`AGENTS.md`）已说明：各仓库已引入 Trellis，`client` 的 `.trellis/spec` 已较完整地按真实栈（Yarn 1 + Vite + Umi Max + vitest + `window.CoreBrowser`）校准；但 harness 编排技能与 `selftest` / `sync:local` 等可运行脚本尚未搭建。结合 Trellis 工作流，建议：
-
-1. **优先补齐各仓库 `.trellis/spec` 的「真实代码 + 路径」**：尤其 `kxc-player`、`rpa-editor`、`rpa-executor` 等复用组件，spec 越具体，跨产品复用时 AI 越不会跑偏。
-2. **用 task 结构承接 PRD**：把 `prd-morelogin` 里的需求经 `trellis-brainstorm` 落成任务的 `prd.md`，复杂的跨仓库需求再补 `design.md`（标注影响面：client / client-cli / morelogin-mcp / 组件）。
-3. **对齐工作空间约定的三个复核节点**：`AGENTS.md` 要求在 ①PRD 确认 ②组件同步前 ③Local API 改动前停下确认——这与 Trellis「建任务同意 / 规划评审闸门 / 提交确认」天然契合，可写进 `workflow.md` 的状态块。
-4. **自测门槛对齐**：把「单测通过 + lint + 相关构建通过」写进 `check.jsonl` 与 `trellis-check` 流程，作为统一自测标准。
-
----
-
-## 十五、完整示例：用 Trellis 落地一个需求
+## 十四、完整示例：用 Trellis 落地一个需求
 
 下面用一个通用的 Web 应用需求，演示**从需求到归档的端到端全过程**，包含每一步的实际命令、AI 行为与产出文件内容。
 
