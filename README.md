@@ -25,6 +25,7 @@
 12. [典型使用场景](#十二典型使用场景)
 13. [最佳实践与常见误区](#十三最佳实践与常见误区)
 14. [完整示例：用 Trellis 落地一个需求](#十四完整示例用-trellis-落地一个需求)
+15. [进阶示例：一个复杂的跨层需求](#十五进阶示例一个复杂的跨层需求)
 
 ---
 
@@ -531,12 +532,257 @@ git commit -m "feat(posts): 文章列表支持按标签筛选并同步 URL"
 
 ---
 
+### 接下来：如果要继续迭代这个需求
+
+需求很少一次到位。下面演示**在上面这个任务基础上继续修改**，分两种情况。
+
+#### 情况 A：任务还没收尾（仍是 `in_progress`）
+
+直接继续对话即可，任务还是活动状态，每轮都在注入 `[workflow-state:in_progress]`。
+
+🧑 **我**：再加一点，标签筛选要支持多选，URL 变成 `?tag=a,b`。
+
+> 🤖 *AI 行为*
+> - 当前任务仍是活动任务，无需新建
+> - 比对原 PRD → 发现这命中了「范围外：不做多标签组合」，属于**范围变更**
+
+🤖 **AI**：这超出了原 PRD 的范围（原本明确不做多标签组合）。你希望把多选扩进**当前任务**，还是**另开一个后续任务**？
+
+🧑 **我**：就扩进当前任务。
+
+> 🤖 *AI 行为*
+> - **更新 `prd.md`**：把「多标签组合」从「范围外」挪到「需求」，并补验收标准
+> - 让 `trellis-implement` 续写：URL 改为读写 `?tag=a,b`，组件支持多选切换
+> - `trellis-check` 重跑校验
+
+要点：**改的是 `prd.md` 这个唯一可信源**，不是口头追加；范围扩大时 AI 先提示、由你决定扩进本任务还是另开任务。
+
+> 💡 中途关了会话、第二天想接着改：新开会话后运行 **`/trellis-continue`**，它会读 `task.json` + journal 把你带回任务当前状态，无需复述上下文。
+
+#### 情况 B：任务已经 `finish-work` 归档了
+
+任务已归档到 `.trellis/tasks/archive/...`，journal 也写过。继续修改走**后续任务**：
+
+🧑 **我**：之前那个标签筛选，现在想再支持多选。
+
+> 🤖 *AI 行为*
+> - 识别为新需求，建后续任务：
+>   ```bash
+>   python3 ./.trellis/scripts/task.py create "标签筛选支持多选" --slug filter-multi-tag
+>   ```
+> - 新任务 `prd.md` 里引用归档任务作为背景
+> - 可选：`task.py add-subtask <原任务> <新任务>` 建立父子关系
+> - **关键**：上次沉淀进 `spec/frontend/state.md` 的「筛选状态走 URL searchParams」会**自动注入**，所以 AI 一开始就用 `?tag=a,b` 而非组件内部 state
+
+> 为什么不「复活」旧任务：Trellis 的理念是**每个可独立验收的改动 = 一个任务**，归档任务是历史快照。新需求走新任务，历史清晰、可追溯。若只是修前一次的笔误/小 bug，则当作 inline 小改，可不建任务。
+
+#### 情况 C：自测时发现 Bug，让 AI 继续修复
+
+`trellis-check` 跑的是自动校验（test/lint/build）。但**你手动自测**时仍可能发现它没覆盖的问题——这时直接把现象告诉 AI 即可。
+
+🧑 **我**：我点了标签 `react` 能正常筛选，但点「清除筛选」后 URL 回到了 `/posts`，列表却还是只显示 `react` 的文章，没刷新回全部。
+
+> 🤖 *AI 行为（任务仍 `in_progress`，无需新建）*
+> - 先**复现**：按你的路径定位到 `app/posts/page.tsx` 里清除筛选只改了 URL、没重新触发列表过滤
+> - 让 `trellis-implement` 修复：清除时同步重置筛选状态 / 依赖 `searchParams` 重新渲染
+> - **补一条回归单测**，覆盖「清除筛选 → 显示全部」这条路径（防止再次回归）
+> - `trellis-check` 重跑 `npm test -- filter-by-tag && npm run lint && npm run build`
+
+🤖 **AI**：复现到了，是清除筛选没重新读取 `searchParams` 导致的。已修复并补了回归单测，校验全部通过。你再自测一下这条路径？
+
+🧑 **我**：好了，正常了。
+
+> 🤖 *AI 行为（针对"棘手 bug"可选）*
+> - 若这是个绕了一阵才定位的问题，触发 `trellis-break-loop` 做 5 维度根因 + 预防分析
+> - 若分析出可复用的防错规则，经 `trellis-update-spec` 写进 spec，例如：
+>   ```markdown
+>   ### 筛选/清除一致性（新增 → .trellis/spec/frontend/state.md）
+>   筛选与「清除筛选」必须共用同一份「从 URL 派生状态」的逻辑，
+>   清除只改 URL、组件依赖 searchParams 重渲染，避免出现 URL 与列表不一致。
+>   ```
+
+几个要点：
+
+- **自测发现的 Bug = 继续在当前任务里修**，不必新建任务（任务还没 finish 时）；
+- AI 修 Bug 时应**顺手补回归测试**，把「人工自测才发现」的场景固化成自动校验；
+- 真正棘手的 Bug 用 `trellis-break-loop` 复盘，把"为什么会犯""怎么预防"沉淀进 spec，下次同类问题自动规避；
+- 若任务**已归档**后才自测出 Bug：小修当 inline 改；影响较大就建一个 `fix-xxx` 后续任务，流程同上。
+
+#### 继续迭代决策表
+
+| 你的情况 | 怎么做 |
+| --- | --- |
+| 任务还没收尾，继续改 | 直接对话；超原 PRD 范围则先更新 `prd.md` |
+| 关了会话想接着改 | `/trellis-continue` |
+| 自测发现 Bug（任务进行中） | 直接描述现象 → AI 复现修复 + 补回归测试；棘手则 `trellis-break-loop` 复盘 |
+| 已归档，新增能力 | 建后续任务（可 `add-subtask` 关联原任务） |
+| 已归档，只修小 bug | inline 小改，可不建任务 |
+
+---
+
 ### 这个示例展示了什么
 
 - **同意闸门**：建任务前、实现前、提交前各有一次人工确认；
 - **结构化产物**：`prd.md`（必有）→ jsonl 上下文清单（复杂任务再加 `design.md` / `implement.md`）；
 - **子代理分工**：research（只读）/ implement（不 commit）/ check（自修复）；
 - **知识沉淀**：可复用规则上升到 `spec/`，会话痕迹留在 `workspace/`，下一次会话无需聊天记录即可接续。
+
+---
+
+## 十五、进阶示例：一个复杂的跨层需求
+
+上一个例子是中等任务，PRD + jsonl 就够了。这一节演示一个**真正复杂的任务**——它会用到 Trellis 为复杂任务准备的全套产物：`research/`（调研）、`design.md`（技术设计与取舍）、`implement.md`（分阶段执行计划），以及 `trellis-research` 子代理和分阶段评审闸门。
+
+> **需求**：给一个现有的 Next.js + TypeScript 应用从零加「用户认证」——邮箱注册/登录、JWT + 刷新令牌、受保护路由、登出，前后端打通，并要能平滑接入现有页面。
+>
+> 这类需求有**架构决策**（令牌存哪、刷新策略）、**多文件改动**、**安全考量**，属于必须先设计再动手的复杂任务。
+
+---
+
+🧑 **我**：给应用加一套用户认证，要支持邮箱注册登录、登出，登录态要能保持，部分页面要登录才能访问。
+
+> 🤖 *AI 行为*
+> - 启动上下文已注入；对本轮分流 → 判定「完整 Trellis 任务」且**复杂度高**（架构决策 + 安全 + 多文件）
+
+🤖 **AI**：这是一个涉及架构决策和安全的复杂需求，我建议建任务并**先做调研和设计、确认后再动手**。可以吗？
+
+---
+
+🧑 **我**：可以，先调研和设计。
+
+> 🤖 *AI 行为*
+> - 建任务：
+>   ```bash
+>   python3 ./.trellis/scripts/task.py create "用户认证体系" --slug auth -p high
+>   ```
+> - 因为有不确定的技术选型，先派 **`trellis-research` 子代理（只读）**调研，产出 `research/auth-options.md`：
+>   ```markdown
+>   # 调研：认证方案选型
+>   ## 候选
+>   - A. 自建 JWT + 刷新令牌（access 存内存、refresh 存 httpOnly cookie）
+>   - B. NextAuth.js / Auth.js（托管 session）
+>   - C. 第三方（Clerk / Supabase Auth）
+>   ## 现状约束
+>   - 已有自建后端 API，团队希望令牌自控、不引第三方托管
+>   ## 倾向
+>   - 选 A：access token 放内存（防 XSS 持久化），refresh token 放 httpOnly + SameSite cookie（防 CSRF 配合）
+>   ```
+> - 触发 `trellis-brainstorm` 写 `prd.md`（需求 + 验收 + 范围外）
+> - 因复杂度高，**额外写 `design.md` 与 `implement.md`**
+
+🤖 **AI**：调研完成，倾向自建 JWT（不引第三方）。这是技术设计 `design.md`（节选），重点是令牌存储与刷新策略，请你确认：
+
+```markdown
+# 设计：用户认证体系
+
+## 架构决策
+- access token：存内存（JS 变量 / context），有效期 15min，不落 localStorage（防 XSS 持久窃取）
+- refresh token：httpOnly + Secure + SameSite=Lax cookie，有效期 7d
+- 刷新：access 过期 → 静默调用 /api/auth/refresh 换新 access；refresh 过期 → 跳登录
+
+## 受保护路由
+- 服务端在 middleware.ts 校验，未登录重定向 /login?from=
+
+## 模块边界 / 数据流
+- lib/auth/*（签发、校验、刷新）｜app/api/auth/*（register/login/logout/refresh）
+- middleware.ts（路由守卫）｜components/AuthProvider.tsx（前端态）
+
+## 兼容性 / 回滚
+- 纯新增；回滚 = 摘掉 middleware 守卫与 AuthProvider，删 /api/auth/*
+```
+
+执行计划 `implement.md` 我拆成了 3 个阶段，每阶段之间设了评审点：
+
+```markdown
+# 执行计划：用户认证体系
+## Phase 1 后端基础（可独立验证）
+- [ ] lib/auth：密码哈希、JWT 签发/校验、refresh 轮换
+- [ ] /api/auth/register、/login、/logout、/refresh
+- [ ] 单测：签发/校验/过期/刷新
+- 验证：npm test -- auth/api && npm run lint
+## Phase 2 路由守卫 + 前端态
+- [ ] middleware.ts 受保护路由重定向
+- [ ] AuthProvider + useAuth；access 过期静默刷新
+- 验证：npm test -- auth && npm run build
+## Phase 3 接入现有页面
+- [ ] 登录/注册页；把 /dashboard 等纳入保护
+- [ ] 端到端手动自测清单
+## 评审闸门：每个 Phase 结束后停下确认再进下一阶段
+```
+
+---
+
+🧑 **我**：设计没问题，按这个分阶段来。
+
+> 🤖 *AI 行为（填上下文清单 + 激活）*
+> - 把设计/调研/相关 spec 写进清单：
+>   ```bash
+>   DIR=.trellis/tasks/06-29-auth
+>   python3 ./.trellis/scripts/task.py add-context "$DIR" "$DIR/design.md" "认证架构与令牌策略"
+>   python3 ./.trellis/scripts/task.py add-context "$DIR" "$DIR/research/auth-options.md" "选型依据"
+>   python3 ./.trellis/scripts/task.py add-context "$DIR" ".trellis/spec/backend/api.md" "API 返回结构与错误码约定"
+>   # check.jsonl 侧重安全/质量
+>   python3 ./.trellis/scripts/task.py add-context "$DIR" ".trellis/spec/guides/security.md" "认证安全检查项" --target check
+>   ```
+> - `task.py start "$DIR"` → `in_progress`
+> - **Phase 1**：派 `trellis-implement` 写 `lib/auth` + `/api/auth/*` + 单测（不 commit）；`trellis-check` 跑 `npm test -- auth/api && npm run lint`
+
+🤖 **AI**：Phase 1（后端基础）完成，认证 API 与单测通过。按计划这里是评审点——要我继续 Phase 2（路由守卫 + 前端态）吗？
+
+---
+
+🧑 **我**：继续。
+
+> 🤖 *AI 行为*
+> - **Phase 2**：`middleware.ts` 守卫 + `AuthProvider/useAuth` + access 静默刷新；`trellis-check` 跑 `npm test -- auth && npm run build`
+> - **Phase 3**：登录/注册页 + 把 `/dashboard` 纳入保护，并产出**手动自测清单**
+
+🤖 **AI**：三个阶段都完成了。下面是给你的手动自测清单（自动测覆盖不到的交互路径）：
+
+```text
+□ 注册新账号 → 自动登录 → 进入 /dashboard
+□ 登出 → 访问 /dashboard 被重定向到 /login?from=/dashboard
+□ 登录后等待 access 过期 → 操作触发静默刷新，不掉登录
+□ 清掉 refresh cookie → 下次刷新失败 → 跳登录
+```
+
+实现中沉淀了一条安全规则，我已记进 spec：
+
+```markdown
+### 令牌存储约定（新增 → .trellis/spec/guides/security.md）
+access token 只存内存，绝不进 localStorage/sessionStorage；
+refresh token 只用 httpOnly + Secure + SameSite cookie，前端 JS 不可读。
+```
+
+---
+
+🧑 **我**：我自测过了，都正常。提交并收尾吧。
+
+> 🤖 *AI 行为*
+> - 打印提交计划，按阶段/逻辑分**多个 commit**（评审更友好）：
+>   ```bash
+>   git add lib/auth app/api/auth __tests__/auth && git commit -m "feat(auth): 后端认证 API 与 JWT 签发/刷新"
+>   git add middleware.ts components/AuthProvider.tsx && git commit -m "feat(auth): 路由守卫与前端登录态"
+>   git add app/login app/register app/dashboard .trellis/ && git commit -m "feat(auth): 登录/注册页与受保护页面接入"
+>   ```
+> - `/trellis-finish-work`：归档任务 + 写 journal
+
+🤖 **AI**：已分三个提交合入并归档，安全规则也沉淀进 spec 了。
+
+---
+
+### 复杂示例比简单示例多了什么
+
+| 维度 | 中等任务（示例十四） | 复杂任务（示例十五） |
+| --- | --- | --- |
+| 调研 | 一般不需要 | `trellis-research` 子代理 → `research/*.md` |
+| 设计 | 跳过 | 必写 `design.md`（架构决策、取舍、回滚） |
+| 计划 | 跳过 | 必写 `implement.md`（分阶段、带评审闸门） |
+| 实现 | 一次实现 | **分 Phase**，每阶段独立验证 + 停下确认 |
+| 提交 | 单个 commit | 按阶段/逻辑**多个 commit** |
+| 沉淀 | 普通约定 | 安全等关键规则进 spec，check.jsonl 专挂安全检查 |
+
+> 一句话：**任务越复杂，前期"设计/计划/调研"的产物越完整，实现越被拆成可独立验证、可随时停下复核的阶段。** 这正是 Trellis 控制复杂度、避免 AI 在大需求里跑偏的方式。
 
 ---
 
