@@ -432,158 +432,104 @@ Spec 只有被 AI 遵守才有用。**模糊的指南会被忽略，具体的规
 
 ## 十四、完整示例：用 Trellis 落地一个需求
 
-下面用一个通用的 Web 应用需求，演示**从需求到归档的端到端全过程**，包含每一步的实际命令、AI 行为与产出文件内容。
+下面用一段**真实对话**演示从需求到归档的全过程。对话中 **🧑 我** 与 **🤖 AI** 来回交流，AI 在每一轮背后实际执行的动作（调用脚本、读写文件、跑子代理）以 `>` 引用块标注。
 
-> **需求**：给一个博客网站的文章列表页增加「按标签筛选」功能——用户点击标签，列表只显示带该标签的文章，URL 同步为 `?tag=xxx`，可分享/刷新保持。
+> **需求**：给一个博客网站的文章列表页增加「按标签筛选」功能——点击标签只显示带该标签的文章，URL 同步为 `?tag=xxx`，可分享/刷新保持。
 >
-> 假设这是一个 Next.js + TypeScript 项目，是一个改动几个文件的中等任务。
+> 假设这是一个 Next.js + TypeScript 项目，已执行过 `trellis init -u alice`。
 
-### 步骤 0：准备（仅首次）
+---
 
-```bash
-# 全局装 CLI
-npm install -g @mindfoldhq/trellis@latest
-# 在项目根目录初始化
-trellis init -u alice
-```
+🧑 **我**：文章列表页加一个按标签筛选的功能，点标签只显示该标签的文章，URL 要带上 `?tag=`，刷新后还在。
 
-### 步骤 1：开新会话，直接描述需求
+> 🤖 *AI 行为（会话开启时自动发生）*
+> - Trellis 注入启动上下文：开发者身份、Git 状态、活动任务列表、`spec/**/index.md` 索引、工作区日志
+> - 对本轮分流 → 判定为「完整 Trellis 任务」（多文件 + 路由 + 筛选逻辑）
 
-你在编码工具里对 AI 说：
+🤖 **AI**：这个功能会改动列表页、路由参数和筛选逻辑，建议建一个 Trellis 任务并进入规划。是否允许我创建任务？（建任务 ≠ 开始写代码）
 
-> 「文章列表页加一个按标签筛选的功能，点标签只显示该标签的文章，URL 要带上 ?tag=，刷新后还在。」
+---
 
-会话开启时 Trellis 已注入启动上下文（开发者身份、Git 状态、活动任务、spec 索引、工作区日志）。AI 识别这是一个值得结构化的任务，于是**先征求同意**：
+🧑 **我**：可以。
 
-> AI：这个功能会改动列表页、路由参数和筛选逻辑，建议建一个 Trellis 任务并进入规划。是否允许我创建任务？（注意：建任务≠开始写代码）
+> 🤖 *AI 行为*
+> - 创建任务：
+>   ```bash
+>   python3 ./.trellis/scripts/task.py create "文章列表按标签筛选" --slug filter-by-tag -p medium
+>   ```
+> - 生成 `.trellis/tasks/06-29-filter-by-tag/`，`task.json` 状态 = `planning`
+> - 触发 `trellis-brainstorm`，逐条澄清后写出 `prd.md`
 
-你回复「可以」。
-
-### 步骤 2：创建任务
-
-AI 执行（对应 `task.py create`）：
-
-```bash
-python3 ./.trellis/scripts/task.py create "文章列表按标签筛选" --slug filter-by-tag -p medium
-```
-
-生成目录 `.trellis/tasks/06-29-filter-by-tag/`，初始 `task.json` 状态为 `planning`：
-
-```json
-{
-  "title": "文章列表按标签筛选",
-  "slug": "filter-by-tag",
-  "status": "planning",
-  "assignee": "alice",
-  "priority": "medium",
-  "created_at": "2026-06-29"
-}
-```
-
-### 步骤 3：规划 —— brainstorm 写出 `prd.md`
-
-`trellis-brainstorm` 逐条澄清需求后写出 `prd.md`：
+🤖 **AI**：任务已建好，PRD 草拟如下，请确认：
 
 ```markdown
 # PRD：文章列表按标签筛选
-
-## 背景
-文章越来越多，用户希望按标签快速过滤，并能分享筛选后的链接。
-
 ## 需求
-- 列表页每篇文章下展示其标签，标签可点击
-- 点击标签后只显示含该标签的文章，URL 同步为 ?tag=<slug>
-- 直接打开带 ?tag= 的链接 / 刷新页面，筛选状态保持
-- 提供「清除筛选」入口回到全部文章
-
+- 列表每篇文章展示其标签，标签可点击
+- 点击标签 → 只显示含该标签的文章，URL 同步为 ?tag=<slug>
+- 带 ?tag= 直接访问 / 刷新 → 筛选状态保持
+- 提供「清除筛选」回到全部
 ## 验收标准
-- 点击标签 → 列表正确过滤，URL 更新
-- 带 ?tag= 直接访问 → 初始即过滤
-- 无匹配文章时显示空状态提示
-- 相关单测通过；lint 与 build 通过
-
+- 点击/直达均正确过滤，URL 更新；无匹配显示空状态；单测 + lint + build 通过
 ## 范围外
-- 不做多标签组合筛选；不做后端分页改造
+- 不做多标签组合；不做后端分页改造
 ```
 
-> **复核节点（PRD 确认）**：AI 停下，请你确认 PRD。你确认后继续。
+---
 
-### 步骤 4：填上下文清单（窄而准）
+🧑 **我**：可以，开始吧。
 
-AI 用 `add-context` 把要读的 **spec 文件**（不是待改源码）写进 jsonl：
+> 🤖 *AI 行为（实现前准备）*
+> - 把要读的 **spec**（非待改源码）写进上下文清单：
+>   ```bash
+>   DIR=.trellis/tasks/06-29-filter-by-tag
+>   python3 ./.trellis/scripts/task.py add-context "$DIR" ".trellis/spec/frontend/components.md" "组件与列表渲染约定"
+>   python3 ./.trellis/scripts/task.py add-context "$DIR" ".trellis/spec/frontend/state.md" "URL 参数与状态同步约定"
+>   ```
+> - 激活任务：`task.py start "$DIR"` → 状态 `planning → in_progress`
+> - 下一轮注入 `[workflow-state:in_progress]`，派生 `trellis-implement` 子代理（按 `jsonl → prd.md` 加载上下文，**不 commit**）写代码：
+>   - `components/TagBadge.tsx`：可点击标签，跳转 `?tag=<slug>`
+>   - `app/posts/page.tsx`：读 `searchParams.tag` 过滤列表 + 空状态 + 清除筛选
+>   - `__tests__/filter-by-tag.test.tsx`：筛选逻辑与空状态单测
+> - 派生 `trellis-check` 子代理，跑校验并自修复：
+>   ```bash
+>   npm test -- filter-by-tag && npm run lint && npm run build
+>   ```
 
-```bash
-DIR=.trellis/tasks/06-29-filter-by-tag
-python3 ./.trellis/scripts/task.py add-context "$DIR" \
-  ".trellis/spec/frontend/components.md" "组件与列表渲染约定"
-python3 ./.trellis/scripts/task.py add-context "$DIR" \
-  ".trellis/spec/frontend/state.md" "URL 参数与状态同步约定"
-python3 ./.trellis/scripts/task.py validate "$DIR"
-```
-
-`implement.jsonl` 内容：
-
-```jsonl
-{"file": ".trellis/spec/frontend/components.md", "reason": "组件与列表渲染约定"}
-{"file": ".trellis/spec/frontend/state.md", "reason": "URL 参数与状态同步约定"}
-```
-
-> 本例是中等任务，PRD + jsonl 足够；若更复杂可再补 `design.md` / `implement.md`。
-
-### 步骤 5：激活任务进入实现
-
-```bash
-python3 ./.trellis/scripts/task.py start .trellis/tasks/06-29-filter-by-tag
-# task.json.status: planning -> in_progress
-```
-
-下一轮注入 `[workflow-state:in_progress]`，`trellis-implement` 子代理按 `jsonl → prd.md` 顺序加载上下文，开始写代码（**不 commit**）：
-
-- `components/TagBadge.tsx`：可点击标签组件，跳转到 `?tag=<slug>`
-- `app/posts/page.tsx`：读取 `searchParams.tag`，过滤文章列表，增加空状态与「清除筛选」
-- `__tests__/filter-by-tag.test.tsx`：筛选逻辑与空状态单测
-
-### 步骤 6：检查与自修复
-
-`trellis-check` 子代理读 PRD / `check.jsonl` / 改动文件，并跑校验，发现问题自行修复后重跑：
-
-```bash
-npm test -- filter-by-tag && npm run lint && npm run build
-```
-
-### 步骤 7：收尾沉淀 spec
-
-`trellis-update-spec` 问：本次有没有可复用规则？有——「列表类页面的筛选状态一律走 URL searchParams，不放组件内部 state」。写进 `.trellis/spec/frontend/state.md`：
+🤖 **AI**：功能已实现，单测 / lint / build 全部通过。实现中发现一个值得沉淀的规则——「列表筛选状态应走 URL searchParams，而不是组件内部 state」。我把它记进 spec 了：
 
 ```markdown
-### 列表筛选状态约定（新增）
+### 列表筛选状态约定（新增 → .trellis/spec/frontend/state.md）
 列表/搜索类页面的筛选条件统一保存在 URL searchParams（如 ?tag=、?q=），
 组件从 URL 读取而非内部 useState，保证可分享、可刷新、可前进后退。
 ```
 
-### 步骤 8：主会话驱动提交（需你确认一次）
-
-AI 打印提交计划，等你确认后执行：
+接下来是提交计划，确认后我再 commit：
 
 ```bash
 git add app/posts/page.tsx components/TagBadge.tsx __tests__/ .trellis/
 git commit -m "feat(posts): 文章列表支持按标签筛选并同步 URL"
 ```
 
-### 步骤 9：归档与写日志
+---
 
-```bash
-/trellis-finish-work
-```
+🧑 **我**：确认提交，然后收尾。
 
-它把任务归档到 `.trellis/tasks/archive/2026-06/06-29-filter-by-tag/`，并把会话总结追加到 `.trellis/workspace/alice/journal-N.md`：
+> 🤖 *AI 行为*
+> - 执行上面的 `git add` / `git commit`
+> - 运行 `/trellis-finish-work`：
+>   - 归档任务到 `.trellis/tasks/archive/2026-06/06-29-filter-by-tag/`
+>   - 把会话总结追加到 `.trellis/workspace/alice/journal-N.md`：
+>     ```markdown
+>     ## 2026-06-29 文章列表按标签筛选
+>     - 列表支持点击标签筛选，状态同步到 URL ?tag=
+>     - commit: feat(posts): 文章列表支持按标签筛选并同步 URL
+>     - 沉淀：列表筛选状态一律走 URL searchParams
+>     ```
 
-```markdown
-## 2026-06-29 文章列表按标签筛选
-- 列表支持点击标签筛选，状态同步到 URL ?tag=
-- commit: feat(posts): 文章列表支持按标签筛选并同步 URL
-- 沉淀：列表筛选状态一律走 URL searchParams
-```
+🤖 **AI**：已提交并归档，工作区日志也更新好了。下次会话即使换个人、换个工具，也能从 spec 和 journal 里接着干。
+
+---
 
 ### 这个示例展示了什么
 
